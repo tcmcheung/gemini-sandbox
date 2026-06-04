@@ -1,0 +1,1311 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full bg-slate-950 text-slate-100">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SoniDrive - HUD & Speed Tracker</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                        mono: ['JetBrains Mono', 'Fira Code', 'monospace']
+                    },
+                    colors: {
+                        brand: {
+                            50: '#f0f9ff',
+                            500: '#0ea5e9',
+                            600: '#0284c7',
+                            900: '#0c4a6e',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+    <!-- Font Awesome for Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <style>
+        .speedometer-glow {
+            filter: drop-shadow(0 0 15px rgba(14, 165, 233, 0.4));
+        }
+        .speedometer-glow-alert {
+            filter: drop-shadow(0 0 20px rgba(239, 68, 68, 0.7));
+            animation: pulse-border 1.5s infinite;
+        }
+        @keyframes pulse-border {
+            0%, 100% { filter: drop-shadow(0 0 15px rgba(239, 68, 68, 0.5)); }
+            50% { filter: drop-shadow(0 0 30px rgba(239, 68, 68, 0.9)); }
+        }
+        /* Custom scrollbar styling for tracker log */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: rgba(15, 23, 42, 0.5);
+        }
+        ::-webkit-scrollbar-thumb {
+            background: rgba(148, 163, 184, 0.3);
+            border-radius: 3px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: rgba(148, 163, 184, 0.5);
+        }
+    </style>
+</head>
+<body class="flex flex-col min-h-full font-sans antialiased selection:bg-brand-500 selection:text-white">
+
+    <!-- Top Navigation / Header -->
+    <header class="border-b border-slate-900 bg-slate-950/80 backdrop-blur-md sticky top-0 z-50 px-4 py-3 sm:px-6">
+        <div class="max-w-7xl mx-auto flex items-center justify-between">
+            <div class="flex items-center space-x-3">
+                <div class="bg-gradient-to-tr from-brand-600 to-cyan-400 p-2.5 rounded-xl shadow-lg shadow-brand-500/20">
+                    <i class="fa-solid fa-gauge-high text-xl text-white"></i>
+                </div>
+                <div>
+                    <h1 class="font-extrabold text-lg tracking-tight bg-gradient-to-r from-white via-slate-100 to-slate-400 bg-clip-text text-transparent">SONIDRIVE</h1>
+                    <p class="text-[10px] text-slate-400 font-medium tracking-widest uppercase">GPS Speed Limit & HUD</p>
+                </div>
+            </div>
+            
+            <div class="flex items-center space-x-2">
+                <!-- System Unit Switcher -->
+                <button id="btn-unit-toggle" class="px-3 py-1.5 rounded-lg text-xs font-bold border border-slate-800 bg-slate-900/60 hover:bg-slate-800 text-slate-300 transition-all flex items-center space-x-1">
+                    <i class="fa-solid fa-sliders text-brand-500"></i>
+                    <span id="unit-toggle-label">UNIT: KM/H</span>
+                </button>
+                
+                <!-- Audio Alert Switcher -->
+                <button id="btn-audio-toggle" class="p-2.5 rounded-lg border border-slate-800 bg-slate-900/60 hover:bg-slate-800 text-slate-400 hover:text-white transition-all">
+                    <i id="audio-icon" class="fa-solid fa-volume-high text-brand-500"></i>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content Grid -->
+    <main class="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 lg:p-8 flex flex-col gap-6">
+        
+        <!-- Status Panel & Dynamic Alerts -->
+        <div id="alert-banner" class="hidden transform transition-all duration-300">
+            <div class="bg-red-950/40 border border-red-500/30 rounded-2xl p-4 flex items-center space-x-4 shadow-xl shadow-red-950/20">
+                <div class="p-3 bg-red-500/10 rounded-xl text-red-500 animate-pulse">
+                    <i class="fa-solid fa-triangle-exclamation text-2xl"></i>
+                </div>
+                <div class="flex-1">
+                    <h4 class="font-bold text-red-400 text-sm">SPEED LIMIT EXCEEDED!</h4>
+                    <p class="text-xs text-red-200/80">You are driving faster than the current road's speed limit. Please slow down safely.</p>
+                </div>
+                <span class="text-xs font-mono font-bold bg-red-500/20 px-2.5 py-1 rounded text-red-300" id="over-speed-delta">+0 km/h</span>
+            </div>
+        </div>
+
+        <!-- Dashboard Widgets Grid -->
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            
+            <!-- LEFT PANEL: HUD Speedometer & Road Sign -->
+            <div class="lg:col-span-7 flex flex-col gap-6">
+                <div class="bg-slate-900/30 border border-slate-900 rounded-3xl p-6 flex flex-col items-center justify-center relative overflow-hidden backdrop-blur-sm min-h-[420px]">
+                    <!-- Subtle Tech Grid Background -->
+                    <div class="absolute inset-0 bg-[linear-gradient(to_right,#0f172a_1px,transparent_1px),linear-gradient(to_bottom,#0f172a_1px,transparent_1px)] bg-[size:4rem_4rem] [mask-image:radial-gradient(ellipse_60%_50%_at_50%_50%,#000_70%,transparent_100%)] opacity-25"></div>
+                    
+                    <!-- Connection & Status Badges -->
+                    <div class="absolute top-4 left-4 flex flex-wrap gap-2 z-10">
+                        <span id="status-badge" class="px-2.5 py-1 rounded-full text-[10px] font-bold tracking-wider uppercase bg-yellow-500/10 text-yellow-500 border border-yellow-500/20 flex items-center gap-1.5">
+                            <span class="h-2 w-2 rounded-full bg-yellow-500 animate-pulse"></span>
+                            IDLE (TAP START)
+                        </span>
+                        <span id="source-badge" class="px-2.5 py-1 rounded-full text-[10px] font-bold tracking-wider uppercase bg-slate-800 text-slate-400 border border-slate-700">
+                            OFFLINE
+                        </span>
+                    </div>
+
+                    <!-- Right Top: Mode Toggle Option -->
+                    <div class="absolute top-4 right-4 z-10">
+                        <button id="btn-toggle-demo" class="px-3 py-1 bg-brand-500/10 hover:bg-brand-500/20 text-brand-400 hover:text-brand-300 border border-brand-500/20 rounded-full text-xs font-semibold transition-all">
+                            <i class="fa-solid fa-gamepad mr-1"></i> Switch to Simulation Mode
+                        </button>
+                    </div>
+
+                    <!-- Speed Display Circle and Gauge -->
+                    <div class="relative flex items-center justify-center w-72 h-72 my-4">
+                        <!-- Background circular path -->
+                        <svg class="absolute inset-0 w-full h-full transform -rotate-90">
+                            <circle cx="144" cy="144" r="125" class="stroke-slate-800" stroke-width="12" fill="transparent" stroke-dasharray="785" stroke-dashoffset="196" stroke-linecap="round"></circle>
+                            <!-- Active gauge path filled based on speed -->
+                            <circle id="gauge-bar" cx="144" cy="144" r="125" class="stroke-brand-500 transition-all duration-300" stroke-width="12" fill="transparent" stroke-dasharray="785" stroke-dashoffset="785" stroke-linecap="round"></circle>
+                        </svg>
+
+                        <!-- Central Speedometer Values -->
+                        <div class="text-center z-10 flex flex-col items-center">
+                            <span id="current-speed-val" class="text-8xl font-black tracking-tighter text-white font-mono leading-none transition-all duration-100">0</span>
+                            <span id="speed-unit-lbl" class="text-sm font-bold tracking-widest text-slate-400 mt-2 uppercase">KM/H</span>
+                            
+                            <!-- Subtitle data info -->
+                            <div class="mt-4 flex flex-col items-center">
+                                <span class="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Estimated Accuracy</span>
+                                <span id="gps-accuracy" class="text-xs font-mono font-semibold text-slate-300">--</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Dynamic HUD Warning Overlay Overlay -->
+                    <div id="hud-alert-frame" class="absolute inset-0 border-4 border-transparent pointer-events-none rounded-3xl transition-all duration-300"></div>
+
+                    <!-- Dashboard Bottom Stats Grid -->
+                    <div class="w-full grid grid-cols-3 gap-4 mt-4 pt-6 border-t border-slate-900 z-10">
+                        <div class="text-center">
+                            <span class="block text-[10px] text-slate-500 font-bold tracking-wider uppercase">Max Speed</span>
+                            <span id="stat-max-speed" class="text-lg font-mono font-bold text-slate-200">0.0</span>
+                        </div>
+                        <div class="text-center border-x border-slate-900">
+                            <span class="block text-[10px] text-slate-500 font-bold tracking-wider uppercase">Avg Speed</span>
+                            <span id="stat-avg-speed" class="text-lg font-mono font-bold text-slate-200">0.0</span>
+                        </div>
+                        <div class="text-center">
+                            <span class="block text-[10px] text-slate-500 font-bold tracking-wider uppercase">Distance</span>
+                            <span id="stat-distance" class="text-lg font-mono font-bold text-slate-200">0.0 km</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Simulation Panel (Hidden by default, shown when enabled) -->
+                <div id="simulation-panel" class="hidden bg-gradient-to-br from-slate-900 to-slate-950 border border-brand-500/30 rounded-3xl p-6 relative overflow-hidden transition-all duration-300">
+                    <div class="absolute -right-16 -bottom-16 opacity-5 pointer-events-none text-9xl text-brand-500">
+                        <i class="fa-solid fa-compass"></i>
+                    </div>
+                    
+                    <div class="flex items-center justify-between mb-4">
+                        <h3 class="text-sm font-bold text-brand-400 tracking-wider uppercase flex items-center gap-2">
+                            <i class="fa-solid fa-wand-magic-sparkles animate-pulse"></i> SIMULATOR PANEL
+                        </h3>
+                        <span class="text-[10px] bg-brand-500/20 text-brand-300 font-mono font-bold px-2.5 py-0.5 rounded-full">ACTIVE</span>
+                    </div>
+
+                    <p class="text-xs text-slate-400 mb-5 leading-relaxed">
+                        To test speed warnings and logging without going outside, adjust the simulated controls below. The app simulates real route coordinates updating dynamically.
+                    </p>
+
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
+                        <div class="space-y-2">
+                            <div class="flex justify-between text-xs">
+                                <span class="text-slate-400 font-semibold">Simulated Speed:</span>
+                                <span id="sim-speed-val" class="font-mono text-brand-400 font-bold">45 km/h</span>
+                            </div>
+                            <input id="sim-speed-slider" type="range" min="0" max="160" value="45" class="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-brand-500">
+                            <div class="flex justify-between text-[10px] text-slate-500 font-mono">
+                                <span>0</span>
+                                <span>80</span>
+                                <span>160 km/h</span>
+                            </div>
+                        </div>
+
+                        <div class="space-y-2">
+                            <div class="flex justify-between text-xs">
+                                <span class="text-slate-400 font-semibold">Simulated Limit:</span>
+                                <span id="sim-limit-val" class="font-mono text-emerald-400 font-bold">50 km/h</span>
+                            </div>
+                            <input id="sim-limit-slider" type="range" min="20" max="130" step="10" value="50" class="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-emerald-500">
+                            <div class="flex justify-between text-[10px] text-slate-500 font-mono">
+                                <span>20</span>
+                                <span>70</span>
+                                <span>130 km/h</span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="mt-4 pt-4 border-t border-slate-900/60 flex flex-wrap gap-2">
+                        <button id="sim-preset-city" class="px-2.5 py-1 text-[10px] font-semibold bg-slate-800 hover:bg-slate-700 rounded-lg text-slate-200 border border-slate-700">Preset: City (50 km/h)</button>
+                        <button id="sim-preset-highway" class="px-2.5 py-1 text-[10px] font-semibold bg-slate-800 hover:bg-slate-700 rounded-lg text-slate-200 border border-slate-700">Preset: Highway (110 km/h)</button>
+                        <button id="sim-trigger-speeding" class="px-2.5 py-1 text-[10px] font-semibold bg-red-950/40 text-red-400 hover:bg-red-950/60 rounded-lg border border-red-900">Preset: Speeding Spike</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- RIGHT PANEL: Speed Limits, Location and Controls -->
+            <div class="lg:col-span-5 flex flex-col gap-6">
+                
+                <!-- Speed Limit & Location Widget -->
+                <div class="bg-slate-900/30 border border-slate-900 rounded-3xl p-6 backdrop-blur-sm flex flex-col sm:flex-row items-center justify-between gap-6">
+                    <div class="flex-1 space-y-4 text-center sm:text-left">
+                        <div>
+                            <span class="text-[10px] text-slate-500 font-extrabold tracking-widest uppercase block mb-1">CURRENT ROAD LIMIT</span>
+                            <h2 id="road-name" class="text-xl font-black text-white leading-tight">Querying nearest road...</h2>
+                            <p id="road-type" class="text-xs text-brand-400 font-medium">GPS location inactive</p>
+                        </div>
+                        
+                        <div class="space-y-1.5 text-xs text-slate-400">
+                            <div class="flex items-center justify-center sm:justify-start gap-2">
+                                <i class="fa-solid fa-map-pin text-brand-500 text-xs w-4"></i>
+                                <span id="coordinate-display" class="font-mono">Waiting for location lock...</span>
+                            </div>
+                            <div class="flex items-center justify-center sm:justify-start gap-2">
+                                <i class="fa-solid fa-satellite text-slate-500 text-xs w-4"></i>
+                                <span id="map-api-status">API: Ready for Request</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- European/Metric Speed Sign representation -->
+                    <div class="flex flex-col items-center justify-center">
+                        <div id="speed-limit-sign" class="w-32 h-32 rounded-full bg-white border-8 border-red-600 flex flex-col items-center justify-center shadow-lg transform transition-transform duration-300 hover:scale-105 select-none shrink-0 relative">
+                            <!-- Outer decorative border shadow -->
+                            <div class="absolute -inset-1 rounded-full border border-black/10"></div>
+                            <span id="speed-limit-val" class="text-4xl font-black text-slate-900 leading-none">--</span>
+                            <span id="speed-limit-unit" class="text-[9px] font-extrabold text-slate-500 tracking-wider uppercase mt-1">KM/H</span>
+                        </div>
+                        <span class="text-[10px] text-slate-500 font-bold uppercase mt-2">Dynamic Limit</span>
+                    </div>
+                </div>
+
+                <!-- Main Action Buttons -->
+                <div class="bg-slate-900/30 border border-slate-900 rounded-3xl p-6 backdrop-blur-sm space-y-4">
+                    <span class="text-[10px] text-slate-500 font-extrabold tracking-widest uppercase block">SESSION CONTROLS</span>
+                    
+                    <div class="grid grid-cols-2 gap-4">
+                        <button id="btn-start" class="w-full py-4 px-6 rounded-2xl font-bold bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 text-white transition-all shadow-lg shadow-emerald-500/10 active:scale-95 flex items-center justify-center space-x-2">
+                            <i class="fa-solid fa-play"></i>
+                            <span>START HUD</span>
+                        </button>
+                        
+                        <button id="btn-stop" disabled class="w-full py-4 px-6 rounded-2xl font-bold bg-slate-800 text-slate-400 opacity-50 cursor-not-allowed transition-all active:scale-95 flex items-center justify-center space-x-2">
+                            <i class="fa-solid fa-stop"></i>
+                            <span>STOP</span>
+                        </button>
+                    </div>
+
+                    <!-- Proactive Permission Button -->
+                    <button id="btn-request-permission" class="w-full py-2.5 px-4 rounded-xl text-xs font-bold bg-slate-900 border border-slate-800 hover:bg-slate-800 text-brand-400 hover:text-brand-300 transition-all flex items-center justify-center gap-2">
+                        <i class="fa-solid fa-location-crosshairs"></i>
+                        <span id="permission-btn-text">Check GPS Permissions</span>
+                    </button>
+
+                    <div class="flex gap-2">
+                        <button id="btn-clear-log" class="flex-1 py-2.5 px-4 rounded-xl text-xs font-semibold bg-slate-900 border border-slate-800 hover:bg-slate-800 text-slate-300 transition-all flex items-center justify-center gap-2">
+                            <i class="fa-solid fa-trash-can text-red-400"></i> Clear Recorded Log
+                        </button>
+                        <button id="btn-export-log" class="flex-1 py-2.5 px-4 rounded-xl text-xs font-semibold bg-brand-500/10 hover:bg-brand-500/20 text-brand-400 hover:text-brand-300 border border-brand-500/20 transition-all flex items-center justify-center gap-2">
+                            <i class="fa-solid fa-file-csv"></i> Export CSV Log
+                        </button>
+                    </div>
+                </div>
+
+                <!-- GPS Troubleshooting Tips -->
+                <div class="bg-slate-900/20 border border-slate-900/60 rounded-3xl p-5 text-xs text-slate-400 space-y-2">
+                    <h4 class="font-semibold text-slate-300 flex items-center gap-2">
+                        <i class="fa-solid fa-circle-info text-brand-500"></i> Mobile Deployment Best Practices
+                    </h4>
+                    <ul class="list-disc list-inside space-y-1 pl-1 text-[11px] leading-relaxed">
+                        <li>Ensure high-accuracy Location/GPS services are active on your device.</li>
+                        <li>Keep app running in standard browser view (not private tab) to guarantee API availability.</li>
+                        <li>Dynamic speed limit updates pull road tags directly from live OpenStreetMap data.</li>
+                    </ul>
+                </div>
+
+            </div>
+
+        </div>
+
+        <!-- BOTTOM PANEL: Real-time Dynamic 1-Second Coordinate Log -->
+        <div class="bg-slate-900/30 border border-slate-900 rounded-3xl p-6 backdrop-blur-sm flex flex-col gap-4">
+            <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                <div>
+                    <h3 class="text-base font-bold text-white flex items-center gap-2">
+                        <i class="fa-solid fa-list-ul text-brand-500"></i> Real-time Coordinate & Speed Log
+                    </h3>
+                    <p class="text-xs text-slate-400">Updates every second with exact location metrics, speed checks, and speed limit tags.</p>
+                </div>
+                
+                <div class="flex items-center gap-3">
+                    <span id="log-count" class="text-xs font-mono font-bold px-3 py-1 bg-slate-950 border border-slate-900 rounded-lg text-slate-400">
+                        Total Rows: 0
+                    </span>
+                    <span id="log-speeding-count" class="text-xs font-mono font-bold px-3 py-1 bg-red-950/40 border border-red-900 text-red-400 rounded-lg">
+                        Speeding Alerts: 0
+                    </span>
+                </div>
+            </div>
+
+            <!-- Scrollable Log Table -->
+            <div class="border border-slate-900 rounded-2xl overflow-hidden bg-slate-950/40">
+                <div class="overflow-x-auto max-h-72">
+                    <table class="w-full text-left border-collapse text-xs font-mono">
+                        <thead class="bg-slate-900 text-slate-400 uppercase text-[10px] tracking-wider sticky top-0 z-10 border-b border-slate-900">
+                            <tr>
+                                <th class="py-3 px-4 font-bold">Time</th>
+                                <th class="py-3 px-4 font-bold">Latitude</th>
+                                <th class="py-3 px-4 font-bold">Longitude</th>
+                                <th class="py-3 px-4 font-bold">Speed</th>
+                                <th class="py-3 px-4 font-bold">Road Speed Limit</th>
+                                <th class="py-3 px-4 font-bold">Status</th>
+                            </tr>
+                        </thead>
+                        <tbody id="log-table-body" class="divide-y divide-slate-900 text-slate-300">
+                            <tr id="empty-log-row">
+                                <td colspan="6" class="py-10 text-center text-slate-500 italic font-sans text-xs">
+                                    <i class="fa-solid fa-road text-xl mb-2 block"></i>
+                                    No records logged yet. Tap "START HUD" to begin active 1-second coordinate logging.
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+    </main>
+
+    <!-- Custom Onscreen Modals (Replacing block alerts) -->
+    <div id="custom-modal" class="hidden fixed inset-0 bg-slate-950/80 backdrop-blur-md items-center justify-center z-50 p-4 transition-all duration-300">
+        <div class="bg-slate-900 border border-slate-800 rounded-3xl p-6 max-w-sm w-full shadow-2xl space-y-4">
+            <div class="flex items-center space-x-3 text-brand-400">
+                <i id="modal-icon" class="fa-solid fa-circle-exclamation text-2xl"></i>
+                <h3 id="modal-title" class="text-lg font-extrabold text-white">System Message</h3>
+            </div>
+            <p id="modal-body" class="text-xs text-slate-400 leading-relaxed">Detailed info goes here...</p>
+            <div class="flex justify-end">
+                <button id="modal-btn-close" class="px-5 py-2 rounded-xl text-xs font-bold bg-brand-500 hover:bg-brand-600 text-white transition-all">
+                    Dismiss
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Footer -->
+    <footer class="mt-auto border-t border-slate-900 bg-slate-950 py-4 px-4 text-center text-[11px] text-slate-500">
+        <div class="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-2">
+            <p>&copy; 2026 SoniDrive Speedometer HUD. Built for real-time mobile speed diagnostics.</p>
+            <p class="flex items-center gap-1">
+                Powered by high-precision Geolocation and OpenStreetMap Overpass APIs.
+            </p>
+        </div>
+    </footer>
+
+    <script>
+        // System State
+        const state = {
+            isActive: false,
+            isDemoMode: false,
+            unitSystem: 'METRIC', // METRIC (km/h) or IMPERIAL (mph)
+            audioEnabled: true,
+            
+            // Speed Metrics
+            currentSpeed: 0, // meters per second
+            speedLimit: 50, // default limit in units (km/h or mph) depending on unitSystem
+            rawSpeedLimitKmh: 50, // absolute kmh representation from APIs
+            maxSpeed: 0, // in selected units
+            avgSpeed: 0, // in selected units
+            distance: 0, // total km or miles
+            speedSamples: [], // list of speeds
+            
+            // Location tracking
+            lat: null,
+            lon: null,
+            accuracy: null,
+            lastPosition: null, // {lat, lon, timestamp} for fallback calculations
+            lastQueryCoords: null, // {lat, lon} to throttle Overpass requests
+            roadName: 'Main Street',
+            roadType: 'Residential',
+            
+            // Logs
+            logs: []
+        };
+
+        // Constants and thresholds
+        const QUERY_DISTANCE_THRESHOLD = 50; // meters to query Overpass API again
+        const OVERPASS_COOLDOWN = 15000; // milliseconds to throttle identical API requests
+
+        // Audio Alerts - Synthesizer Engine
+        let audioCtx = null;
+        let lastBeepTime = 0;
+
+        function playSpeedLimitWarningBeep() {
+            if (!state.audioEnabled) return;
+            const now = Date.now();
+            if (now - lastBeepTime < 1500) return; // limit sound triggers to once per 1.5s
+            
+            try {
+                if (!audioCtx) {
+                    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                }
+                
+                // Double high pitched warning beep
+                const playBeep = (delay, frequency, duration) => {
+                    const osc = audioCtx.createOscillator();
+                    const gain = audioCtx.createGain();
+                    
+                    osc.type = 'sawtooth';
+                    osc.frequency.setValueAtTime(frequency, audioCtx.currentTime + delay);
+                    
+                    gain.gain.setValueAtTime(0.08, audioCtx.currentTime + delay);
+                    gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + delay + duration);
+                    
+                    osc.connect(gain);
+                    gain.connect(audioCtx.destination);
+                    
+                    osc.start(audioCtx.currentTime + delay);
+                    osc.stop(audioCtx.currentTime + delay + duration);
+                };
+                
+                playBeep(0, 880, 0.25);
+                playBeep(0.3, 880, 0.25);
+                
+                lastBeepTime = now;
+            } catch (err) {
+                console.error("Audio Synthesis error: ", err);
+            }
+        }
+
+        // Custom modal helper
+        function showNotification(title, message, iconClass = "fa-circle-exclamation", textTheme = "text-brand-400") {
+            const modal = document.getElementById('custom-modal');
+            const icon = document.getElementById('modal-icon');
+            const titleEl = document.getElementById('modal-title');
+            const bodyEl = document.getElementById('modal-body');
+            
+            icon.className = `fa-solid ${iconClass} text-2xl ${textTheme}`;
+            titleEl.textContent = title;
+            bodyEl.textContent = message;
+            
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+        }
+
+        document.getElementById('modal-btn-close').addEventListener('click', () => {
+            const modal = document.getElementById('custom-modal');
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+        });
+
+        // Conversion helper helpers
+        function metersPerSecondToSelectedUnit(mps) {
+            if (state.unitSystem === 'METRIC') {
+                return mps * 3.6; // returns kmh
+            } else {
+                return mps * 2.23694; // returns mph
+            }
+        }
+
+        function selectedUnitToKmh(val) {
+            if (state.unitSystem === 'METRIC') {
+                return val;
+            } else {
+                return val * 1.60934;
+            }
+        }
+
+        function kmhToSelectedUnit(kmh) {
+            if (state.unitSystem === 'METRIC') {
+                return kmh;
+            } else {
+                return kmh * 0.621371;
+            }
+        }
+
+        // Haversine distance calculation in meters
+        function calculateHaversineDistance(lat1, lon1, lat2, lon2) {
+            const R = 6371e3; // metres
+            const phi1 = lat1 * Math.PI/180;
+            const phi2 = lat2 * Math.PI/180;
+            const deltaPhi = (lat2-lat1) * Math.PI/180;
+            const deltaLambda = (lon2-lon1) * Math.PI/180;
+
+            const a = Math.sin(deltaPhi/2) * Math.sin(deltaPhi/2) +
+                      Math.cos(phi1) * Math.cos(phi2) *
+                      Math.sin(deltaLambda/2) * Math.sin(deltaLambda/2);
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+
+            return R * c; // in meters
+        }
+
+        // GPS Geolocation Watcher ID
+        let gpsWatcherId = null;
+
+        // Proactive Permission Request Check & Loop Trigger
+        async function requestAndVerifyGPSPermission(interactive = false) {
+            if (!navigator.geolocation) {
+                showNotification("No GPS Available", "Your browser or device does not support GPS location.", "fa-circle-xmark", "text-red-500");
+                return false;
+            }
+
+            // Attempt using modern Permissions API to check current state
+            if (navigator.permissions && navigator.permissions.query) {
+                try {
+                    const status = await navigator.permissions.query({ name: 'geolocation' });
+                    
+                    if (status.state === 'denied') {
+                        // User previously blocked permission
+                        showNotification(
+                            "Location Access Blocked", 
+                            "GPS access is explicitly blocked for this app in your browser settings. To use the real-time speed tracker, please open your browser/device settings, allow Location Access for this site, and try again.", 
+                            "fa-ban", 
+                            "text-red-500"
+                        );
+                        updatePermissionUI('Denied / Blocked', 'text-red-500', 'fa-ban');
+                        return false;
+                    } else if (status.state === 'prompt') {
+                        // Trigger native system permission prompt via a quick, single accuracy request
+                        if (interactive) {
+                            updatePermissionUI('Requesting...', 'text-yellow-500 animate-pulse', 'fa-circle-notch animate-spin');
+                            await triggerSystemPrompt();
+                        }
+                    } else if (status.state === 'granted') {
+                        if (interactive) {
+                            showNotification("Permission Granted", "Your device is ready for real-time tracking! Click 'START HUD' to begin monitoring your trip.", "fa-circle-check", "text-emerald-500");
+                        }
+                        updatePermissionUI('Granted & Ready', 'text-emerald-400', 'fa-circle-check');
+                        return true;
+                    }
+
+                    // Watch for state changes dynamically
+                    status.onchange = () => {
+                        requestAndVerifyGPSPermission(false);
+                    };
+                } catch (e) {
+                    console.log("Permissions API query fallback: ", e);
+                }
+            }
+
+            // Fallback for browsers that do not support navigator.permissions.query
+            if (interactive) {
+                return await triggerSystemPrompt();
+            }
+            return true;
+        }
+
+        // Triggers the official browser location prompt
+        function triggerSystemPrompt() {
+            return new Promise((resolve) => {
+                navigator.geolocation.getCurrentPosition(
+                    (position) => {
+                        updatePermissionUI('Granted & Ready', 'text-emerald-400', 'fa-circle-check');
+                        resolve(true);
+                    },
+                    (err) => {
+                        if (err.code === 1) { // PERMISSION_DENIED
+                            showNotification(
+                                "Location Access Blocked", 
+                                "Location permission was denied. Please adjust your browser address bar settings to allow 'Location access' to calculate speeds.", 
+                                "fa-ban", 
+                                "text-red-500"
+                            );
+                            updatePermissionUI('Denied / Blocked', 'text-red-500', 'fa-ban');
+                        } else {
+                            updatePermissionUI('Ready to Check', 'text-brand-400', 'fa-location-crosshairs');
+                        }
+                        resolve(false);
+                    },
+                    { enableHighAccuracy: true, timeout: 5000 }
+                );
+            });
+        }
+
+        function updatePermissionUI(text, colorClass, iconClass) {
+            const btnText = document.getElementById('permission-btn-text');
+            const btn = document.getElementById('btn-request-permission');
+            btnText.className = `${colorClass} font-bold`;
+            btnText.innerHTML = `${text}`;
+            
+            // Update button icon dynamically
+            const icon = btn.querySelector('i');
+            if (icon) {
+                icon.className = `fa-solid ${iconClass} ${colorClass}`;
+            }
+        }
+
+        async function startGpsTracking() {
+            // Re-verify permission state immediately before turning on HUD
+            const preCheck = await requestAndVerifyGPSPermission(true);
+            if (!preCheck && !state.isDemoMode) {
+                // If it wasn't approved and they aren't on simulator mode, stop start process
+                document.getElementById('btn-stop').click();
+                return false;
+            }
+
+            const options = {
+                enableHighAccuracy: true, // Force mobile hardware high-precision GPS
+                timeout: 10000,
+                maximumAge: 0
+            };
+
+            updateStatusBadge("LOCKING...", "bg-blue-500/10 text-blue-500 border-blue-500/20", true);
+            updateSourceBadge("HARDWARE GPS", "bg-emerald-950 text-emerald-400 border-emerald-900");
+
+            gpsWatcherId = navigator.geolocation.watchPosition(
+                handleGpsSuccess,
+                handleGpsError,
+                options
+            );
+            return true;
+        }
+
+        function stopGpsTracking() {
+            if (gpsWatcherId) {
+                navigator.geolocation.clearWatch(gpsWatcherId);
+                gpsWatcherId = null;
+            }
+        }
+
+        function handleGpsSuccess(position) {
+            if (!state.isActive || state.isDemoMode) return;
+
+            const coords = position.coords;
+            state.lat = coords.latitude;
+            state.lon = coords.longitude;
+            state.accuracy = coords.accuracy;
+
+            updateStatusBadge("ACTIVE", "bg-emerald-500/10 text-emerald-500 border-emerald-500/20", true);
+
+            // Handle speed calculation
+            let calculatedSpeedMps = 0;
+            
+            if (coords.speed !== null && coords.speed !== undefined && coords.speed >= 0) {
+                // Perfect hardware reporting
+                calculatedSpeedMps = coords.speed;
+            } else {
+                // Fallback: Haversine speed calculation based on coordinate delta
+                const currentTime = position.timestamp;
+                if (state.lastPosition) {
+                    const metersTraveled = calculateHaversineDistance(
+                        state.lastPosition.lat,
+                        state.lastPosition.lon,
+                        state.lat,
+                        state.lon
+                    );
+                    const secondsElapsed = (currentTime - state.lastPosition.timestamp) / 1000;
+                    
+                    if (secondsElapsed > 0.5 && secondsElapsed < 10) {
+                        calculatedSpeedMps = metersTraveled / secondsElapsed;
+                        
+                        // Increment overall distance traveled
+                        state.distance += (metersTraveled / 1000); // km
+                    }
+                }
+                
+                // Track current point as last point
+                state.lastPosition = {
+                    lat: state.lat,
+                    lon: state.lon,
+                    timestamp: currentTime
+                };
+            }
+
+            // Convert to state variable
+            state.currentSpeed = calculatedSpeedMps;
+
+            // Update accuracy UI
+            const accVal = state.accuracy ? `${state.accuracy.toFixed(1)} m` : 'Unknown';
+            document.getElementById('gps-accuracy').textContent = accVal;
+            
+            // Render basic UI items
+            document.getElementById('coordinate-display').textContent = `${state.lat.toFixed(5)}, ${state.lon.toFixed(5)}`;
+
+            // Check if we need to call Overpass for a new speed limit query
+            evaluateSpeedLimitQuery(state.lat, state.lon);
+            
+            // Run UI Dashboard Refresh
+            refreshDashboardMetrics();
+        }
+
+        function handleGpsError(err) {
+            console.warn("GPS Location error: ", err);
+            let errMsg = "Unable to fetch high-precision coordinates.";
+            if (err.code === 1) {
+                errMsg = "Location access denied by user. Please enable location permissions.";
+                updatePermissionUI('Denied / Blocked', 'text-red-500', 'fa-ban');
+            } else if (err.code === 2) {
+                errMsg = "Location unavailable. Ensure outdoor satellite coverage or mobile data.";
+            } else if (err.code === 3) {
+                errMsg = "GPS request timed out. Retrying link...";
+            }
+            
+            document.getElementById('gps-accuracy').textContent = "ERROR";
+            document.getElementById('coordinate-display').textContent = "No GPS lock";
+            
+            updateStatusBadge("GPS OFFLINE", "bg-red-500/10 text-red-500 border-red-500/20", false);
+        }
+
+        // Adaptive Speed limits mapping based on OSM highway tag if maxspeed is omitted
+        const fallbackRoadLimits = {
+            'motorway': 110,
+            'trunk': 90,
+            'primary': 80,
+            'secondary': 70,
+            'tertiary': 60,
+            'unclassified': 50,
+            'residential': 40,
+            'living_street': 20,
+            'service': 30,
+            'default': 50
+        };
+
+        let lastQueryTimestamp = 0;
+
+        async function evaluateSpeedLimitQuery(lat, lon) {
+            const now = Date.now();
+            
+            // Check delta from last query coordinate
+            if (state.lastQueryCoords) {
+                const deltaMeters = calculateHaversineDistance(state.lastQueryCoords.lat, state.lastQueryCoords.lon, lat, lon);
+                if (deltaMeters < QUERY_DISTANCE_THRESHOLD && (now - lastQueryTimestamp) < OVERPASS_COOLDOWN) {
+                    // Coordinates haven't shifted enough and cooldown is active
+                    return; 
+                }
+            }
+
+            state.lastQueryCoords = { lat, lon };
+            lastQueryTimestamp = now;
+            
+            updateMapStatus("Querying OSM Map...", true);
+
+            try {
+                // Find nearest highway segment within 50 meters
+                const query = `[out:json][timeout:5];
+                    way(around:50, ${lat}, ${lon})[highway];
+                    out tags;`;
+                const url = `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`;
+                
+                const res = await fetch(url);
+                if (!res.ok) throw new Error("API rate-limiting response");
+                
+                const data = await res.json();
+                
+                if (data && data.elements && data.elements.length > 0) {
+                    // Get nearest element with usable tags
+                    const way = data.elements[0];
+                    const tags = way.tags || {};
+                    
+                    const roadName = tags.name || tags.ref || "Unnamed Road";
+                    const roadType = tags.highway || "Residential";
+                    
+                    let maxspeedRaw = tags.maxspeed;
+                    let speedLimitKmh = fallbackRoadLimits[roadType] || fallbackRoadLimits['default'];
+                    
+                    if (maxspeedRaw) {
+                        // Handle formatting like '50', '50 mph', 'RU:urban', etc.
+                        let parsedSpeed = parseInt(maxspeedRaw.match(/\d+/));
+                        if (!isNaN(parsedSpeed)) {
+                            if (maxspeedRaw.includes('mph')) {
+                                speedLimitKmh = parsedSpeed * 1.60934;
+                            } else {
+                                speedLimitKmh = parsedSpeed; // default is km/h in most parts of the world
+                            }
+                        }
+                    }
+
+                    state.roadName = roadName;
+                    state.roadType = roadType.toUpperCase().replace('_', ' ');
+                    state.rawSpeedLimitKmh = speedLimitKmh;
+                    
+                    // Convert units to current state choice
+                    state.speedLimit = Math.round(kmhToSelectedUnit(speedLimitKmh));
+
+                    updateMapStatus("Map Match Synced", false);
+                    updateRoadUI(state.roadName, state.roadType, state.speedLimit);
+                } else {
+                    state.roadName = "General Territory / Street";
+                    state.roadType = "Unknown Highway Class";
+                    state.rawSpeedLimitKmh = 50;
+                    state.speedLimit = Math.round(kmhToSelectedUnit(50));
+                    
+                    updateMapStatus("No nearby road tag found", false);
+                    updateRoadUI(state.roadName, state.roadType, state.speedLimit);
+                }
+            } catch (err) {
+                console.warn("Overpass speed limit call failed or rate limited: ", err);
+                updateMapStatus("Connection Error. Defaulting...", false);
+                
+                // Keep default limits on failure
+                updateRoadUI("Unknown Road (Map Offline)", "LOCAL AREA LIMIT", state.speedLimit);
+            }
+        }
+
+        function updateRoadUI(name, type, limit) {
+            document.getElementById('road-name').textContent = name;
+            document.getElementById('road-type').textContent = `ROAD TYPE: ${type}`;
+            document.getElementById('speed-limit-val').textContent = limit;
+        }
+
+        function updateMapStatus(text, isSearching) {
+            const apiStatus = document.getElementById('map-api-status');
+            if (isSearching) {
+                apiStatus.innerHTML = `<i class="fa-solid fa-circle-notch animate-spin text-brand-500 mr-1"></i> ${text}`;
+            } else {
+                apiStatus.innerHTML = `<i class="fa-solid fa-map-location-dot text-emerald-500 mr-1"></i> ${text}`;
+            }
+        }
+
+        // Logging engine running every second
+        let loggerIntervalId = null;
+
+        function startLoggerEngine() {
+            if (loggerIntervalId) clearInterval(loggerIntervalId);
+            
+            loggerIntervalId = setInterval(() => {
+                if (!state.isActive) return;
+
+                const timestamp = new Date().toLocaleTimeString();
+                
+                // Get precise coordinates (simulated or actual)
+                const latVal = state.lat !== null ? state.lat.toFixed(6) : "0.000000";
+                const lonVal = state.lon !== null ? state.lon.toFixed(6) : "0.000000";
+                
+                const speedVal = metersPerSecondToSelectedUnit(state.currentSpeed);
+                const limitVal = state.speedLimit;
+                
+                const isOverLimit = speedVal > limitVal;
+                const statusStr = isOverLimit ? "SPEEDING" : "NORMAL";
+
+                // Save record
+                const logRecord = {
+                    time: timestamp,
+                    lat: latVal,
+                    lon: lonVal,
+                    speed: speedVal.toFixed(1),
+                    limit: limitVal,
+                    status: statusStr
+                };
+                
+                state.logs.push(logRecord);
+
+                // Add to visual logs table directly to stay optimal
+                appendRowToLogTable(logRecord);
+
+                // Update counts
+                updateLogStats();
+
+            }, 1000);
+        }
+
+        function stopLoggerEngine() {
+            if (loggerIntervalId) {
+                clearInterval(loggerIntervalId);
+                loggerIntervalId = null;
+            }
+        }
+
+        function appendRowToLogTable(rec) {
+            const tableBody = document.getElementById('log-table-body');
+            const emptyRow = document.getElementById('empty-log-row');
+            
+            if (emptyRow) {
+                emptyRow.remove();
+            }
+
+            const tr = document.createElement('tr');
+            tr.className = rec.status === 'SPEEDING' 
+                ? 'bg-red-950/20 hover:bg-red-950/30 transition-colors text-red-300 font-semibold' 
+                : 'hover:bg-slate-900/40 transition-colors';
+
+            const statusCellColor = rec.status === 'SPEEDING' 
+                ? '<span class="px-2 py-0.5 rounded bg-red-500/10 border border-red-500/20 text-red-400 text-[10px] font-bold">SPEEDING</span>'
+                : '<span class="px-2 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[10px] font-bold">NORMAL</span>';
+
+            tr.innerHTML = `
+                <td class="py-2.5 px-4 font-bold border-b border-slate-900">${rec.time}</td>
+                <td class="py-2.5 px-4 text-slate-400 border-b border-slate-900">${rec.lat}</td>
+                <td class="py-2.5 px-4 text-slate-400 border-b border-slate-900">${rec.lon}</td>
+                <td class="py-2.5 px-4 text-white border-b border-slate-900">${rec.speed} ${state.unitSystem === 'METRIC' ? 'km/h' : 'mph'}</td>
+                <td class="py-2.5 px-4 text-slate-400 border-b border-slate-900">${rec.limit} ${state.unitSystem === 'METRIC' ? 'km/h' : 'mph'}</td>
+                <td class="py-2.5 px-4 border-b border-slate-900">${statusCellColor}</td>
+            `;
+
+            // Prepends to always show newest at top of logs
+            tableBody.insertBefore(tr, tableBody.firstChild);
+        }
+
+        function updateLogStats() {
+            const rowCount = state.logs.length;
+            const speedingCount = state.logs.filter(l => l.status === "SPEEDING").length;
+            
+            document.getElementById('log-count').textContent = `Total Rows: ${rowCount}`;
+            document.getElementById('log-speeding-count').textContent = `Speeding Alerts: ${speedingCount}`;
+        }
+
+        function clearRecordedLogs() {
+            state.logs = [];
+            const tableBody = document.getElementById('log-table-body');
+            tableBody.innerHTML = `
+                <tr id="empty-log-row">
+                    <td colspan="6" class="py-10 text-center text-slate-500 italic font-sans text-xs">
+                        <i class="fa-solid fa-road text-xl mb-2 block"></i>
+                        No records logged yet. Tap "START HUD" to begin active 1-second coordinate logging.
+                    </td>
+                </tr>
+            `;
+            updateLogStats();
+        }
+
+        function exportLogsToCSV() {
+            if (state.logs.length === 0) {
+                showNotification("Empty Logs", "There are no log records recorded to export yet.", "fa-triangle-exclamation", "text-yellow-400");
+                return;
+            }
+
+            const headers = ["Timestamp", "Latitude", "Longitude", `Speed (${state.unitSystem === 'METRIC' ? 'km/h' : 'mph'})`, `Limit (${state.unitSystem === 'METRIC' ? 'km/h' : 'mph'})`, "Status"];
+            const csvRows = [headers.join(',')];
+
+            state.logs.forEach(log => {
+                const values = [
+                    `"${log.time}"`,
+                    log.lat,
+                    log.lon,
+                    log.speed,
+                    log.limit,
+                    `"${log.status}"`
+                ];
+                csvRows.push(values.join(','));
+            });
+
+            const csvContent = "data:text/csv;charset=utf-8," + csvRows.join("\n");
+            const encodedUri = encodeURI(csvContent);
+            const link = document.createElement("a");
+            link.setAttribute("href", encodedUri);
+            link.setAttribute("download", `SoniDrive_SpeedLog_${new Date().toISOString().slice(0,10)}.csv`);
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
+        // Simulation track generator - Coordinates around a virtual racetrack
+        const simRoutePoints = [
+            {lat: 43.4643, lon: -80.5204}, // Kitchener starting point
+            {lat: 43.4651, lon: -80.5190},
+            {lat: 43.4665, lon: -80.5175},
+            {lat: 43.4680, lon: -80.5160},
+            {lat: 43.4695, lon: -80.5152},
+            {lat: 43.4710, lon: -80.5150},
+            {lat: 43.4725, lon: -80.5158},
+            {lat: 43.4738, lon: -80.5172},
+            {lat: 43.4745, lon: -80.5190},
+            {lat: 43.4740, lon: -80.5210},
+            {lat: 43.4728, lon: -80.5230},
+            {lat: 43.4712, lon: -80.5245},
+            {lat: 43.4695, lon: -80.5255},
+            {lat: 43.4678, lon: -80.5250},
+            {lat: 43.4660, lon: -80.5235},
+            {lat: 43.4648, lon: -80.5218}
+        ];
+        
+        let simRouteIndex = 0;
+        let simulatorTickerId = null;
+
+        function updateSimulationData() {
+            if (!state.isActive || !state.isDemoMode) return;
+
+            // Generate coordinates looping over preset route coordinates
+            const basePoint = simRoutePoints[simRouteIndex % simRoutePoints.length];
+            
+            // Inject small coordinate jitter to represent typical mobile GPS inaccuracy
+            const latJitter = (Math.random() - 0.5) * 0.00008;
+            const lonJitter = (Math.random() - 0.5) * 0.00008;
+            
+            state.lat = basePoint.lat + latJitter;
+            state.lon = basePoint.lon + lonJitter;
+            state.accuracy = 3.2; // premium simulated GPS quality
+
+            // Read raw values from sliders
+            const simSpeedSliderValue = parseFloat(document.getElementById('sim-speed-slider').value); // in raw kmh
+            const simLimitSliderValue = parseInt(document.getElementById('sim-limit-slider').value); // in raw kmh
+
+            // Set dynamic simulator metrics
+            if (state.unitSystem === 'METRIC') {
+                state.currentSpeed = simSpeedSliderValue / 3.6; // convert to mps
+                state.speedLimit = simLimitSliderValue;
+            } else {
+                state.currentSpeed = (simSpeedSliderValue / 1.60934) / 3.6; // convert slider km/h simulation to standard m/s
+                state.speedLimit = Math.round(kmhToSelectedUnit(simLimitSliderValue));
+            }
+
+            // Track continuous distance in simulator mode
+            state.distance += (simSpeedSliderValue / 3600); // add distance traveled in 1 sec interval
+
+            // Sync visual layout components
+            document.getElementById('coordinate-display').textContent = `${state.lat.toFixed(6)}, ${state.lon.toFixed(6)}`;
+            document.getElementById('gps-accuracy').textContent = `3.2 m (SIM)`;
+
+            refreshDashboardMetrics();
+
+            // Progress tracking route index
+            simRouteIndex++;
+        }
+
+        // Preset helpers for simulated configurations
+        function loadSimulatorPreset(speedLimit, speed, name = "Simulated Highway") {
+            document.getElementById('sim-speed-slider').value = speed;
+            document.getElementById('sim-limit-slider').value = speedLimit;
+            
+            document.getElementById('sim-speed-val').textContent = `${speed} km/h`;
+            document.getElementById('sim-limit-val').textContent = `${speedLimit} km/h`;
+
+            state.roadName = name;
+            state.roadType = speedLimit > 80 ? "EXPRESSWAY" : "URBAN TRANSIT";
+            
+            updateRoadUI(state.roadName, state.roadType, Math.round(kmhToSelectedUnit(speedLimit)));
+        }
+
+        function refreshDashboardMetrics() {
+            const currentSpeedConverted = metersPerSecondToSelectedUnit(state.currentSpeed);
+            const speedLimitConverted = state.speedLimit;
+
+            // Smooth animated update
+            document.getElementById('current-speed-val').textContent = Math.round(currentSpeedConverted);
+            
+            // Calculate speedometer ring fill percentage (clamped to 100%)
+            const maxTrackedValue = 160; 
+            const speedRatio = Math.min(currentSpeedConverted / maxTrackedValue, 1.0);
+            
+            // SVGs stroke-dashoffset formula
+            // Full circle circumference = 785 (r=125, width=12). Top-left gap offsets
+            const progressOffset = 785 - (speedRatio * 589); // uses ~75% of visual track
+            document.getElementById('gauge-bar').setAttribute('stroke-dashoffset', progressOffset);
+
+            // Speed warning condition logic
+            const isSpeeding = Math.round(currentSpeedConverted) > speedLimitConverted;
+            const alertBanner = document.getElementById('alert-banner');
+            const hudFrame = document.getElementById('hud-alert-frame');
+            const gaugeBar = document.getElementById('gauge-bar');
+
+            if (isSpeeding) {
+                alertBanner.classList.remove('hidden');
+                
+                const delta = Math.round(currentSpeedConverted - speedLimitConverted);
+                document.getElementById('over-speed-delta').textContent = `+${delta} ${state.unitSystem === 'METRIC' ? 'km/h' : 'mph'}`;
+                
+                // Color animations
+                hudFrame.classList.add('border-red-500/40', 'bg-red-500/5');
+                gaugeBar.classList.add('stroke-red-500');
+                gaugeBar.classList.remove('stroke-brand-500');
+                
+                // Play synthesised custom warning pitch
+                playSpeedLimitWarningBeep();
+            } else {
+                alertBanner.classList.add('hidden');
+                hudFrame.classList.remove('border-red-500/40', 'bg-red-500/5');
+                gaugeBar.classList.remove('stroke-red-500');
+                gaugeBar.classList.add('stroke-brand-500');
+            }
+
+            // Record dynamic session highlights
+            if (currentSpeedConverted > state.maxSpeed) {
+                state.maxSpeed = currentSpeedConverted;
+                document.getElementById('stat-max-speed').textContent = state.maxSpeed.toFixed(1);
+            }
+
+            state.speedSamples.push(currentSpeedConverted);
+            const sum = state.speedSamples.reduce((a, b) => a + b, 0);
+            state.avgSpeed = sum / state.speedSamples.length;
+            document.getElementById('stat-avg-speed').textContent = state.avgSpeed.toFixed(1);
+
+            const distanceLabel = state.unitSystem === 'METRIC' ? 'km' : 'mi';
+            const displayDistance = state.unitSystem === 'METRIC' ? state.distance : state.distance * 0.621371;
+            document.getElementById('stat-distance').textContent = `${displayDistance.toFixed(2)} ${distanceLabel}`;
+        }
+
+        // Toggle state and status representations
+        function updateStatusBadge(text, styleClasses, isPulse) {
+            const badge = document.getElementById('status-badge');
+            badge.className = `px-2.5 py-1 rounded-full text-[10px] font-bold tracking-wider uppercase border flex items-center gap-1.5 ${styleClasses}`;
+            
+            const pulseDot = isPulse ? '<span class="h-2 w-2 rounded-full bg-current animate-pulse"></span>' : '';
+            badge.innerHTML = `${pulseDot}${text}`;
+        }
+
+        function updateSourceBadge(text, styleClasses) {
+            const badge = document.getElementById('source-badge');
+            badge.className = `px-2.5 py-1 rounded-full text-[10px] font-bold tracking-wider uppercase border ${styleClasses}`;
+            badge.textContent = text;
+        }
+
+        // Event Handling Hooks
+        document.getElementById('btn-start').addEventListener('click', () => {
+            if (state.isActive) return;
+
+            // Sound activation prompt inside user event handler (required for AudioContext standard)
+            if (state.audioEnabled && !audioCtx) {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            }
+
+            state.isActive = true;
+            state.speedSamples = [];
+            state.maxSpeed = 0;
+            state.avgSpeed = 0;
+            state.distance = 0;
+
+            document.getElementById('stat-max-speed').textContent = '0.0';
+            document.getElementById('stat-avg-speed').textContent = '0.0';
+            document.getElementById('stat-distance').textContent = `0.00 ${state.unitSystem === 'METRIC' ? 'km' : 'mi'}`;
+
+            // Buttons lock UI swap
+            document.getElementById('btn-start').disabled = true;
+            document.getElementById('btn-start').classList.add('opacity-50', 'cursor-not-allowed');
+            document.getElementById('btn-stop').disabled = false;
+            document.getElementById('btn-stop').classList.remove('opacity-50', 'cursor-not-allowed', 'bg-slate-800', 'text-slate-400');
+            document.getElementById('btn-stop').classList.add('bg-red-600', 'text-white', 'hover:bg-red-500');
+
+            if (state.isDemoMode) {
+                updateStatusBadge("SIMULATING", "bg-brand-500/10 text-brand-400 border-brand-500/20", true);
+                updateSourceBadge("ROUTE EMULATION", "bg-brand-950 text-brand-400 border-brand-900");
+                
+                // Set initial slider preset parameters
+                updateSimulationData();
+                simulatorTickerId = setInterval(updateSimulationData, 1000);
+            } else {
+                startGpsTracking();
+            }
+
+            startLoggerEngine();
+        });
+
+        document.getElementById('btn-stop').addEventListener('click', () => {
+            if (!state.isActive) return;
+
+            state.isActive = false;
+
+            // Buttons lock reset
+            document.getElementById('btn-start').disabled = false;
+            document.getElementById('btn-start').classList.remove('opacity-50', 'cursor-not-allowed');
+            document.getElementById('btn-stop').disabled = true;
+            document.getElementById('btn-stop').classList.add('opacity-50', 'cursor-not-allowed', 'bg-slate-800', 'text-slate-400');
+            document.getElementById('btn-stop').classList.remove('bg-red-600', 'text-white', 'hover:bg-red-500');
+
+            updateStatusBadge("PAUSED (IDLE)", "bg-yellow-500/10 text-yellow-500 border-yellow-500/20", false);
+
+            if (state.isDemoMode) {
+                if (simulatorTickerId) {
+                    clearInterval(simulatorTickerId);
+                    simulatorTickerId = null;
+                }
+            } else {
+                stopGpsTracking();
+            }
+
+            stopLoggerEngine();
+        });
+
+        // Mode Toggler (Simulation vs Real-World GPS Hardware)
+        document.getElementById('btn-toggle-demo').addEventListener('click', () => {
+            const wasRunning = state.isActive;
+            
+            // Clean dynamic structures
+            if (wasRunning) {
+                document.getElementById('btn-stop').click();
+            }
+
+            state.isDemoMode = !state.isDemoMode;
+            
+            const btn = document.getElementById('btn-toggle-demo');
+            const simPanel = document.getElementById('simulation-panel');
+
+            if (state.isDemoMode) {
+                btn.innerHTML = `<i class="fa-solid fa-satellite mr-1"></i> Switch to Live GPS`;
+                btn.className = "px-3 py-1 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 hover:text-emerald-300 border border-emerald-500/20 rounded-full text-xs font-semibold transition-all";
+                simPanel.classList.remove('hidden');
+                
+                // Defaults for Simulator Mode
+                loadSimulatorPreset(50, 45, "Simulated Residential Way");
+                updateSourceBadge("SIMULATION MODEL", "bg-slate-800 text-slate-300");
+            } else {
+                btn.innerHTML = `<i class="fa-solid fa-gamepad mr-1"></i> Switch to Simulation Mode`;
+                btn.className = "px-3 py-1 bg-brand-500/10 hover:bg-brand-500/20 text-brand-400 hover:text-brand-300 border border-brand-500/20 rounded-full text-xs font-semibold transition-all";
+                simPanel.classList.add('hidden');
+                
+                updateSourceBadge("OFFLINE", "bg-slate-800 text-slate-400 border border-slate-700");
+                updateRoadUI("Querying nearest road...", "GPS inactive", "--");
+                requestAndVerifyGPSPermission(false);
+            }
+        });
+
+        // Unit Switcher Handler
+        document.getElementById('btn-unit-toggle').addEventListener('click', () => {
+            const oldUnit = state.unitSystem;
+            state.unitSystem = oldUnit === 'METRIC' ? 'IMPERIAL' : 'METRIC';
+
+            const toggledLabel = state.unitSystem === 'METRIC' ? 'UNIT: KM/H' : 'UNIT: MPH';
+            document.getElementById('unit-toggle-label').textContent = toggledLabel;
+            document.getElementById('speed-unit-lbl').textContent = state.unitSystem === 'METRIC' ? 'KM/H' : 'MPH';
+            document.getElementById('speed-limit-unit').textContent = state.unitSystem === 'METRIC' ? 'KM/H' : 'MPH';
+
+            // Convert current stored maxspeed references
+            if (state.unitSystem === 'METRIC') {
+                state.speedLimit = Math.round(selectedUnitToKmh(state.speedLimit));
+            } else {
+                state.speedLimit = Math.round(kmhToSelectedUnit(state.rawSpeedLimitKmh));
+            }
+
+            document.getElementById('speed-limit-val').textContent = state.speedLimit;
+
+            // Recalculate historical values of tracking speeds
+            state.maxSpeed = metersPerSecondToSelectedUnit(state.maxSpeed / (oldUnit === 'METRIC' ? 3.6 : 2.23694));
+            document.getElementById('stat-max-speed').textContent = state.maxSpeed.toFixed(1);
+
+            refreshDashboardMetrics();
+        });
+
+        // Audio Toggle Settings
+        document.getElementById('btn-audio-toggle').addEventListener('click', () => {
+            state.audioEnabled = !state.audioEnabled;
+            const icon = document.getElementById('audio-icon');
+
+            if (state.audioEnabled) {
+                icon.className = "fa-solid fa-volume-high text-brand-500";
+                showNotification("Audio Alerts Enabled", "A custom audio warning tone will chime when speeding.", "fa-volume-high", "text-brand-400");
+            } else {
+                icon.className = "fa-solid fa-volume-xmark text-slate-500";
+            }
+        });
+
+        // On-Click Permission Handlers
+        document.getElementById('btn-request-permission').addEventListener('click', () => {
+            requestAndVerifyGPSPermission(true);
+        });
+
+        // Logging clean or extraction bindings
+        document.getElementById('btn-clear-log').addEventListener('click', clearRecordedLogs);
+        document.getElementById('btn-export-log').addEventListener('click', exportLogsToCSV);
+
+        // Simulator Control bindings
+        document.getElementById('sim-speed-slider').addEventListener('input', (e) => {
+            document.getElementById('sim-speed-val').textContent = `${e.target.value} km/h`;
+            if (state.isActive) updateSimulationData();
+        });
+
+        document.getElementById('sim-limit-slider').addEventListener('input', (e) => {
+            document.getElementById('sim-limit-val').textContent = `${e.target.value} km/h`;
+            if (state.isActive) updateSimulationData();
+        });
+
+        // Preset Shortcut Triggers
+        document.getElementById('sim-preset-city').addEventListener('click', () => {
+            loadSimulatorPreset(50, 42, "Simulated Commercial Boulevard");
+            if (state.isActive) updateSimulationData();
+        });
+
+        document.getElementById('sim-preset-highway').addEventListener('click', () => {
+            loadSimulatorPreset(110, 105, "Provincial Express Highway Route");
+            if (state.isActive) updateSimulationData();
+        });
+
+        document.getElementById('sim-trigger-speeding').addEventListener('click', () => {
+            loadSimulatorPreset(60, 84, "Speed Trap (School Zone)");
+            if (state.isActive) updateSimulationData();
+        });
+
+        // Start initialization process on load
+        window.onload = function() {
+            console.log("SoniDrive Speedometer Tracker engine initialized.");
+            // Silent passive permission state query on launch
+            requestAndVerifyGPSPermission(false);
+        };
+    </script>
+</body>
+</html>
