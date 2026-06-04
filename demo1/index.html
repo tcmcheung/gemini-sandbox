@@ -267,6 +267,50 @@
                     </div>
                 </div>
 
+                <!-- NEW: Speed Limit Database & Route Pre-loader -->
+                <div class="bg-slate-900/30 border border-slate-900 rounded-3xl p-6 backdrop-blur-sm space-y-4">
+                    <div class="flex justify-between items-center">
+                        <span class="text-[10px] text-slate-500 font-extrabold tracking-widest uppercase block">LIMIT DATABASE & ROUTE OPTIMIZER</span>
+                        <span id="db-count-badge" class="px-2 py-0.5 rounded-md text-[9px] font-bold bg-brand-500/10 text-brand-400 border border-brand-500/25">0 Saved Limits</span>
+                    </div>
+
+                    <!-- Database Import/Export -->
+                    <div class="grid grid-cols-2 gap-3">
+                        <button id="btn-export-db" class="py-2 px-3 rounded-xl text-xs font-semibold bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-800 transition-all flex items-center justify-center gap-2">
+                            <i class="fa-solid fa-file-export text-brand-500"></i> Export DB (.json)
+                        </button>
+                        <button id="btn-import-db-trigger" class="py-2 px-3 rounded-xl text-xs font-semibold bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-800 transition-all flex items-center justify-center gap-2">
+                            <i class="fa-solid fa-file-import text-emerald-500"></i> Import DB (.json)
+                        </button>
+                        <input type="file" id="db-file-input" class="hidden" accept=".json">
+                    </div>
+
+                    <!-- Pre-load Route Form -->
+                    <div class="pt-3 border-t border-slate-900 space-y-3">
+                        <span class="text-[10px] text-slate-400 font-bold block"><i class="fa-solid fa-route text-brand-500 mr-1"></i> Pre-fetch Custom Route Limits</span>
+                        
+                        <div class="space-y-2">
+                            <input type="text" id="route-start" placeholder="Start address (e.g. Waterloo, ON)" class="w-full px-3 py-2 text-xs rounded-xl bg-slate-950 border border-slate-900 focus:border-brand-500 focus:ring-0 outline-none placeholder-slate-600 transition-all">
+                            <input type="text" id="route-end" placeholder="End address (e.g. Toronto, ON)" class="w-full px-3 py-2 text-xs rounded-xl bg-slate-950 border border-slate-900 focus:border-brand-500 focus:ring-0 outline-none placeholder-slate-600 transition-all">
+                        </div>
+
+                        <button id="btn-preload-route" class="w-full py-2.5 px-4 rounded-xl text-xs font-bold bg-brand-500 hover:bg-brand-600 text-white transition-all flex items-center justify-center gap-2 shadow-lg shadow-brand-500/10">
+                            <i class="fa-solid fa-cloud-arrow-down"></i> Pre-load Route & Save Limits
+                        </button>
+
+                        <!-- Pre-loading Progress bar -->
+                        <div id="preload-progress-container" class="hidden space-y-1.5 pt-2">
+                            <div class="flex justify-between text-[10px] text-slate-400 font-mono">
+                                <span id="preload-progress-status">Downloading coordinates...</span>
+                                <span id="preload-progress-pct">0%</span>
+                            </div>
+                            <div class="w-full bg-slate-950 h-2 rounded-full overflow-hidden border border-slate-900">
+                                <div id="preload-progress-bar" class="bg-brand-500 h-full w-0 transition-all duration-300"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Main Action Buttons -->
                 <div class="bg-slate-900/30 border border-slate-900 rounded-3xl p-6 backdrop-blur-sm space-y-4">
                     <span class="text-[10px] text-slate-500 font-extrabold tracking-widest uppercase block">SESSION CONTROLS</span>
@@ -416,6 +460,9 @@
             roadName: 'Main Street',
             roadType: 'Residential',
             
+            // Limit Cache Database
+            speedLimitCache: [], // Array of {lat, lon, speedLimitKmh, roadName, roadType}
+            
             // Logs
             logs: []
         };
@@ -526,6 +573,249 @@
 
             return R * c; // in meters
         }
+
+        // --- DATABASE CACHE LOGIC ---
+        function findCachedLimit(lat, lon) {
+            // Check if coordinates have a cached speed limit within 80 meters (approx 1 residential street block width)
+            for (const entry of state.speedLimitCache) {
+                const dist = calculateHaversineDistance(lat, lon, entry.lat, entry.lon);
+                if (dist <= 80) {
+                    return entry;
+                }
+            }
+            return null;
+        }
+
+        function addToCache(lat, lon, speedLimitKmh, roadName, roadType) {
+            const existing = findCachedLimit(lat, lon);
+            if (existing) {
+                existing.speedLimitKmh = speedLimitKmh;
+                existing.roadName = roadName;
+                existing.roadType = roadType;
+            } else {
+                state.speedLimitCache.push({
+                    lat: parseFloat(lat),
+                    lon: parseFloat(lon),
+                    speedLimitKmh: parseInt(speedLimitKmh),
+                    roadName: roadName || "Unnamed Road",
+                    roadType: roadType || "Residential"
+                });
+            }
+            updateCacheCountUI();
+        }
+
+        function updateCacheCountUI() {
+            document.getElementById('db-count-badge').textContent = `${state.speedLimitCache.length} Saved Limits`;
+        }
+
+        // Export Database Cache to JSON
+        document.getElementById('btn-export-db').addEventListener('click', () => {
+            if (state.speedLimitCache.length === 0) {
+                showNotification("No Data", "Your speed limit database is currently empty. Start driving or pre-load a route to build records.", "fa-circle-exclamation", "text-yellow-400");
+                return;
+            }
+            const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(state.speedLimitCache, null, 2));
+            const downloadAnchor = document.createElement('a');
+            downloadAnchor.setAttribute("href", dataStr);
+            downloadAnchor.setAttribute("download", "sonidrive_database.json");
+            document.body.appendChild(downloadAnchor);
+            downloadAnchor.click();
+            downloadAnchor.remove();
+        });
+
+        // Trigger file input click
+        document.getElementById('btn-import-db-trigger').addEventListener('click', () => {
+            document.getElementById('db-file-input').click();
+        });
+
+        // Handle File Import
+        document.getElementById('db-file-input').addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(event) {
+                try {
+                    const importedData = JSON.parse(event.target.result);
+                    if (Array.isArray(importedData)) {
+                        let validatedCount = 0;
+                        importedData.forEach(item => {
+                            if (item.lat && item.lon && item.speedLimitKmh) {
+                                addToCache(item.lat, item.lon, item.speedLimitKmh, item.roadName, item.roadType);
+                                validatedCount++;
+                            }
+                        });
+                        showNotification("Import Successful", `Loaded and validated ${validatedCount} local speed limits into the offline database!`, "fa-circle-check", "text-emerald-400");
+                        updateCacheCountUI();
+                    } else {
+                        throw new Error("Invalid file format");
+                    }
+                } catch (err) {
+                    showNotification("Import Failed", "Please ensure you are selecting a valid sonidrive_database.json file.", "fa-triangle-exclamation", "text-red-400");
+                }
+            };
+            reader.readAsText(file);
+        });
+
+        // --- ROUTE PRE-LOADER VIA NOMINATIM & OSRM API ---
+        document.getElementById('btn-preload-route').addEventListener('click', async () => {
+            const startInput = document.getElementById('route-start').value.trim();
+            const endInput = document.getElementById('route-end').value.trim();
+
+            if (!startInput || !endInput) {
+                showNotification("Missing Fields", "Please enter both a start location and an end location to pre-load limits.", "fa-map", "text-yellow-400");
+                return;
+            }
+
+            const progressContainer = document.getElementById('preload-progress-container');
+            const progressStatus = document.getElementById('preload-progress-status');
+            const progressPct = document.getElementById('preload-progress-pct');
+            const progressBar = document.getElementById('preload-progress-bar');
+
+            // Reset & show progress
+            progressContainer.classList.remove('hidden');
+            progressStatus.textContent = "Geocoding start address...";
+            progressPct.textContent = "5%";
+            progressBar.style.width = "5%";
+
+            try {
+                // 1. Geocode Start
+                const startRes = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(startInput)}&format=json&limit=1`, {
+                    headers: { 'User-Agent': 'SoniDrive-Speed-Tracker-App' }
+                });
+                const startData = await startRes.json();
+                if (!startData || startData.length === 0) throw new Error("Could not find start address.");
+
+                const startCoords = { lat: parseFloat(startData[0].lat), lon: parseFloat(startData[0].lon) };
+
+                // 2. Geocode End
+                progressStatus.textContent = "Geocoding end address...";
+                progressPct.textContent = "15%";
+                progressBar.style.width = "15%";
+
+                const endRes = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(endInput)}&format=json&limit=1`, {
+                    headers: { 'User-Agent': 'SoniDrive-Speed-Tracker-App' }
+                });
+                const endData = await endRes.json();
+                if (!endData || endData.length === 0) throw new Error("Could not find end address.");
+
+                const endCoords = { lat: parseFloat(endData[0].lat), lon: parseFloat(endData[0].lon) };
+
+                // 3. Fetch OSRM Route geometry
+                progressStatus.textContent = "Calculating optimal route geometry...";
+                progressPct.textContent = "30%";
+                progressBar.style.width = "30%";
+
+                const routeRes = await fetch(`https://router.project-osrm.org/route/v1/driving/${startCoords.lon},${startCoords.lat};${endCoords.lon},${endCoords.lat}?overview=full&geometries=geojson`);
+                const routeData = await routeRes.json();
+
+                if (!routeData.routes || routeData.routes.length === 0) throw new Error("No route coordinates found between coordinates.");
+
+                const routeCoordinates = routeData.routes[0].geometry.coordinates; // Array of [lon, lat]
+
+                // Subsample the route so we check points spaced out along the path (e.g. every ~250m) to avoid overwhelming OSM
+                const checkpoints = [];
+                let accumDist = 0;
+                
+                if (routeCoordinates.length > 0) {
+                    checkpoints.push({ lat: routeCoordinates[0][1], lon: routeCoordinates[0][0] });
+                    
+                    for (let i = 1; i < routeCoordinates.length; i++) {
+                        const prev = routeCoordinates[i - 1];
+                        const curr = routeCoordinates[i];
+                        accumDist += calculateHaversineDistance(prev[1], prev[0], curr[1], curr[0]);
+                        
+                        // Pick a coordinate checkpoint roughly every 250 meters
+                        if (accumDist >= 250) {
+                            checkpoints.push({ lat: curr[1], lon: curr[0] });
+                            accumDist = 0;
+                        }
+                    }
+                    
+                    // Add destination explicitly
+                    const lastPt = routeCoordinates[routeCoordinates.length - 1];
+                    checkpoints.push({ lat: lastPt[1], lon: lastPt[0] });
+                }
+
+                if (checkpoints.length === 0) throw new Error("No usable checkpoints detected on this path.");
+
+                // 4. Batch-query OSM with throttled queueing to prevent Overpass API blocks (1.2 seconds delay per query)
+                progressStatus.textContent = `Pre-fetching limits (0 / ${checkpoints.length})...`;
+                progressPct.textContent = "35%";
+                progressBar.style.width = "35%";
+
+                let loadedPoints = 0;
+                for (const checkpoint of checkpoints) {
+                    // Check if already in cache
+                    const alreadyCached = findCachedLimit(checkpoint.lat, checkpoint.lon);
+                    if (alreadyCached) {
+                        loadedPoints++;
+                        continue;
+                    }
+
+                    // Await next Overpass API response safely
+                    await new Promise(resolve => setTimeout(resolve, 1200));
+
+                    try {
+                        const query = `[out:json][timeout:5];
+                            way(around:50, ${checkpoint.lat}, ${checkpoint.lon})[highway];
+                            out tags;`;
+                        const url = `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`;
+                        const osmpRes = await fetch(url);
+                        
+                        if (osmpRes.ok) {
+                            const osmData = await osmpRes.json();
+                            if (osmData && osmData.elements && osmData.elements.length > 0) {
+                                const way = osmData.elements[0];
+                                const tags = way.tags || {};
+                                const roadName = tags.name || tags.ref || "Unnamed Road";
+                                const roadType = tags.highway || "Residential";
+                                
+                                let maxspeedRaw = tags.maxspeed;
+                                let speedLimitKmh = fallbackRoadLimits[roadType] || fallbackRoadLimits['default'];
+                                
+                                if (maxspeedRaw) {
+                                    let parsedSpeed = parseInt(maxspeedRaw.match(/\d+/));
+                                    if (!isNaN(parsedSpeed)) {
+                                        if (maxspeedRaw.includes('mph')) {
+                                            speedLimitKmh = parsedSpeed * 1.60934;
+                                        } else {
+                                            speedLimitKmh = parsedSpeed;
+                                        }
+                                    }
+                                }
+                                addToCache(checkpoint.lat, checkpoint.lon, speedLimitKmh, roadName, roadType);
+                            }
+                        }
+                    } catch (err) {
+                        console.warn("Checkpoint download error: ", err);
+                    }
+
+                    loadedPoints++;
+                    const percentComplete = 35 + Math.round((loadedPoints / checkpoints.length) * 65);
+                    progressStatus.textContent = `Pre-fetching speed limits (${loadedPoints} / ${checkpoints.length})...`;
+                    progressPct.textContent = `${percentComplete}%`;
+                    progressBar.style.width = `${percentComplete}%`;
+                }
+
+                progressStatus.textContent = "Route limits successfully memorized!";
+                progressPct.textContent = "100%";
+                progressBar.style.width = "100%";
+                
+                showNotification("Route Pre-loaded", `Complete route mapped! Speed limits for ${checkpoints.length} road checkpoints are now pre-loaded in the database.`, "fa-route", "text-emerald-400");
+                
+                setTimeout(() => {
+                    progressContainer.classList.add('hidden');
+                }, 4000);
+
+            } catch (err) {
+                progressStatus.textContent = `Error: ${err.message}`;
+                progressPct.textContent = "Error";
+                progressBar.classList.add('bg-red-600');
+                showNotification("Preload Failed", err.message, "fa-triangle-exclamation", "text-red-400");
+            }
+        });
+
 
         // GPS Geolocation Watcher ID
         let gpsWatcherId = null;
@@ -751,6 +1041,19 @@
         let lastQueryTimestamp = 0;
 
         async function evaluateSpeedLimitQuery(lat, lon) {
+            // 1. Check local speed limit database (Cache) first to prevent network delay
+            const cachedMatch = findCachedLimit(lat, lon);
+            if (cachedMatch) {
+                state.roadName = cachedMatch.roadName;
+                state.roadType = cachedMatch.roadType.toUpperCase().replace('_', ' ');
+                state.rawSpeedLimitKmh = cachedMatch.speedLimitKmh;
+                state.speedLimit = Math.round(kmhToSelectedUnit(cachedMatch.speedLimitKmh));
+
+                updateMapStatus("Served from Local Cache (Instant)", false, true);
+                updateRoadUI(state.roadName, state.roadType, state.speedLimit);
+                return;
+            }
+
             const now = Date.now();
             
             // Check delta from last query coordinate
@@ -765,7 +1068,7 @@
             state.lastQueryCoords = { lat, lon };
             lastQueryTimestamp = now;
             
-            updateMapStatus("Querying OSM Map...", true);
+            updateMapStatus("Querying OSM Map...", true, false);
 
             try {
                 // Find nearest highway segment within 50 meters
@@ -809,7 +1112,10 @@
                     // Convert units to current state choice
                     state.speedLimit = Math.round(kmhToSelectedUnit(speedLimitKmh));
 
-                    updateMapStatus("Map Match Synced", false);
+                    // Add to local Cache database
+                    addToCache(lat, lon, speedLimitKmh, roadName, roadType);
+
+                    updateMapStatus("Map Match Synced", false, false);
                     updateRoadUI(state.roadName, state.roadType, state.speedLimit);
                 } else {
                     state.roadName = "General Territory / Street";
@@ -817,12 +1123,12 @@
                     state.rawSpeedLimitKmh = 50;
                     state.speedLimit = Math.round(kmhToSelectedUnit(50));
                     
-                    updateMapStatus("No nearby road tag found", false);
+                    updateMapStatus("No nearby road tag found", false, false);
                     updateRoadUI(state.roadName, state.roadType, state.speedLimit);
                 }
             } catch (err) {
                 console.warn("Overpass speed limit call failed or rate limited: ", err);
-                updateMapStatus("Connection Error. Defaulting...", false);
+                updateMapStatus("Connection Error. Defaulting...", false, false);
                 
                 // Keep default limits on failure
                 updateRoadUI("Unknown Road (Map Offline)", "LOCAL AREA LIMIT", state.speedLimit);
@@ -835,10 +1141,12 @@
             document.getElementById('speed-limit-val').textContent = limit;
         }
 
-        function updateMapStatus(text, isSearching) {
+        function updateMapStatus(text, isSearching, isCached = false) {
             const apiStatus = document.getElementById('map-api-status');
             if (isSearching) {
                 apiStatus.innerHTML = `<i class="fa-solid fa-circle-notch animate-spin text-brand-500 mr-1"></i> ${text}`;
+            } else if (isCached) {
+                apiStatus.innerHTML = `<i class="fa-solid fa-bolt text-yellow-500 mr-1"></i> ${text}`;
             } else {
                 apiStatus.innerHTML = `<i class="fa-solid fa-map-location-dot text-emerald-500 mr-1"></i> ${text}`;
             }
@@ -1305,6 +1613,7 @@
             console.log("SoniDrive Speedometer Tracker engine initialized.");
             // Silent passive permission state query on launch
             requestAndVerifyGPSPermission(false);
+            updateCacheCountUI();
         };
     </script>
 </body>
